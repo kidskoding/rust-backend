@@ -26,20 +26,35 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn Error>> 
     let mut http_request = Vec::new();
     let mut lines = buf_reader.lines();
 
-    while let Some(line) = lines.next_line().await? {
-        if line.is_empty() {
-            break;
-        }
-        http_request.push(line);
-    }
+    let request_line = match lines.next_line().await? {
+        Some(line) => line,
+        None => return Err("Empty request".into()),
+    };
+    http_request.push(request_line.clone());
 
-    let status_line = "HTTP/1.1 200 OK";
-    let contents = fs::read_to_string("index.html").await?;
+    let (status_line, filename) = if request_line == "GET / HTTP/1.1" {
+        ("HTTP/1.1 200 OK", "index.html")
+    } else {
+        ("HTTP/1.1 404 NOT FOUND", "404.html")
+    };
+
+    read_from_html_file(stream, filename, status_line).await?;
+
+    Ok(())
+}
+
+async fn read_from_html_file(
+    mut stream: TcpStream,
+    file: &str,
+    status_line: &str,
+) -> Result<(), Box<dyn Error>> {
+    let contents = fs::read_to_string(file).await?;
     let length = contents.len();
 
     let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
 
     stream.write_all(response.as_bytes()).await?;
+    stream.flush().await?;
 
     Ok(())
 }
